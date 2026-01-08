@@ -21,6 +21,8 @@ const PROTECTED_MOD_SHA256 = process.env.PROTECTED_MOD_SHA256
   ? String(process.env.PROTECTED_MOD_SHA256).trim().toLowerCase()
   : null;
 
+const MODS_LIST_RAW = process.env.MODS_LIST ? String(process.env.MODS_LIST).trim() : "";
+
 const DB_PATH = path.join(__dirname, "db.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MODS_DIR = path.join(__dirname, "mods");
@@ -55,6 +57,30 @@ function ensureDb() {
   if (!fs.existsSync(DB_PATH)) {
     fs.writeFileSync(DB_PATH, JSON.stringify({ keys: [] }, null, 2), "utf8");
   }
+}
+
+function getModsListFromEnv() {
+  if (!MODS_LIST_RAW) return null;
+  try {
+    // Allow JSON: ["a.jar","b.jar"]
+    const parsed = JSON.parse(MODS_LIST_RAW);
+    if (Array.isArray(parsed)) {
+      const items = parsed
+        .filter((x) => typeof x === "string")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return items.length ? items : null;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Fallback: comma / newline separated list
+  const items = MODS_LIST_RAW
+    .split(/[,\n\r]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return items.length ? items : null;
 }
 
 function readDb() {
@@ -368,15 +394,36 @@ app.post("/api/session/verify", (req, res) => {
 
 app.get("/api/modpack", authMiddleware, (req, res) => {
   const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const modsBaseUrl = MODS_BASE_URL;
+
+  const envMods = getModsListFromEnv();
 
   let mods = [];
   try {
+    if (envMods) {
+      if (!modsBaseUrl) {
+        return res.status(500).json({ ok: false, error: "missing_mods_base_url" });
+      }
+
+      mods = envMods
+        .filter((f) => f.toLowerCase().endsWith(".jar"))
+        .sort((a, b) => a.localeCompare(b))
+        .map((f) => {
+          const encoded = encodeURIComponent(f);
+          const url = `${modsBaseUrl}/${encoded}`;
+          return { id: f.replace(/\.jar$/i, ""), url, fileName: f };
+        });
+    } else
     if (fs.existsSync(MODS_DIR)) {
       const files = fs.readdirSync(MODS_DIR);
       mods = files
         .filter((f) => typeof f === "string" && f.toLowerCase().endsWith(".jar"))
         .sort((a, b) => a.localeCompare(b))
-        .map((f) => ({ id: f.replace(/\.jar$/i, ""), url: `${baseUrl}/mods/${encodeURIComponent(f)}`, fileName: f }));
+        .map((f) => {
+          const encoded = encodeURIComponent(f);
+          const url = modsBaseUrl ? `${modsBaseUrl}/${encoded}` : `${baseUrl}/mods/${encoded}`;
+          return { id: f.replace(/\.jar$/i, ""), url, fileName: f };
+        });
     }
   } catch {
     mods = [];
