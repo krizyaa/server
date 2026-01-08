@@ -17,6 +17,10 @@ const PROTECTED_MOD_REGEX = process.env.PROTECTED_MOD_REGEX ? new RegExp(process
 
 const MODS_BASE_URL = process.env.MODS_BASE_URL ? String(process.env.MODS_BASE_URL).replace(/\/+$/, "") : null;
 
+const PROTECTED_MOD_SHA256 = process.env.PROTECTED_MOD_SHA256
+  ? String(process.env.PROTECTED_MOD_SHA256).trim().toLowerCase()
+  : null;
+
 const DB_PATH = path.join(__dirname, "db.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MODS_DIR = path.join(__dirname, "mods");
@@ -303,14 +307,19 @@ app.post("/api/session/start", authMiddleware, async (req, res) => {
     return res.status(401).json({ ok: false, error: "key_used_on_other_pc" });
   }
 
-  const protectedFile = findProtectedModFile();
-  if (!protectedFile) return res.status(400).json({ ok: false, error: "protected_mod_not_found" });
+  // Validate protected mod integrity
+  if (PROTECTED_MOD_SHA256) {
+    if (PROTECTED_MOD_SHA256 !== modSha256) return res.status(403).json({ ok: false, error: "invalid_mod_hash" });
+  } else {
+    const protectedFile = findProtectedModFile();
+    if (!protectedFile) return res.status(400).json({ ok: false, error: "protected_mod_not_found" });
 
-  try {
-    const expected = await sha256FileLowerHex(protectedFile);
-    if (expected !== modSha256) return res.status(403).json({ ok: false, error: "invalid_mod_hash" });
-  } catch {
-    return res.status(500).json({ ok: false, error: "mod_hash_failed" });
+    try {
+      const expected = await sha256FileLowerHex(protectedFile);
+      if (expected !== modSha256) return res.status(403).json({ ok: false, error: "invalid_mod_hash" });
+    } catch {
+      return res.status(500).json({ ok: false, error: "mod_hash_failed" });
+    }
   }
 
   const sessionToken = randomToken(24);
@@ -359,7 +368,6 @@ app.post("/api/session/verify", (req, res) => {
 
 app.get("/api/modpack", authMiddleware, (req, res) => {
   const baseUrl = `${req.protocol}://${req.get("host")}`;
-  const modsBaseUrl = MODS_BASE_URL;
 
   let mods = [];
   try {
@@ -368,11 +376,7 @@ app.get("/api/modpack", authMiddleware, (req, res) => {
       mods = files
         .filter((f) => typeof f === "string" && f.toLowerCase().endsWith(".jar"))
         .sort((a, b) => a.localeCompare(b))
-        .map((f) => {
-          const encoded = encodeURIComponent(f);
-          const url = modsBaseUrl ? `${modsBaseUrl}/${encoded}` : `${baseUrl}/mods/${encoded}`;
-          return { id: f.replace(/\.jar$/i, ""), url, fileName: f };
-        });
+        .map((f) => ({ id: f.replace(/\.jar$/i, ""), url: `${baseUrl}/mods/${encodeURIComponent(f)}`, fileName: f }));
     }
   } catch {
     mods = [];
