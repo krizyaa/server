@@ -15,6 +15,8 @@ const TOKEN_TTL_SECONDS = 60 * 60 * 24;
 const SESSION_TTL_SECONDS = process.env.SESSION_TTL_SECONDS ? Number(process.env.SESSION_TTL_SECONDS) : 120;
 const PROTECTED_MOD_REGEX = process.env.PROTECTED_MOD_REGEX ? new RegExp(process.env.PROTECTED_MOD_REGEX, "i") : /^floravisuals-.*\.jar$/i;
 
+const MODS_BASE_URL = process.env.MODS_BASE_URL ? String(process.env.MODS_BASE_URL).replace(/\/+$/, "") : null;
+
 const DB_PATH = path.join(__dirname, "db.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MODS_DIR = path.join(__dirname, "mods");
@@ -357,6 +359,7 @@ app.post("/api/session/verify", (req, res) => {
 
 app.get("/api/modpack", authMiddleware, (req, res) => {
   const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const modsBaseUrl = MODS_BASE_URL;
 
   let mods = [];
   try {
@@ -365,7 +368,11 @@ app.get("/api/modpack", authMiddleware, (req, res) => {
       mods = files
         .filter((f) => typeof f === "string" && f.toLowerCase().endsWith(".jar"))
         .sort((a, b) => a.localeCompare(b))
-        .map((f) => ({ id: f.replace(/\.jar$/i, ""), url: `${baseUrl}/mods/${encodeURIComponent(f)}`, fileName: f }));
+        .map((f) => {
+          const encoded = encodeURIComponent(f);
+          const url = modsBaseUrl ? `${modsBaseUrl}/${encoded}` : `${baseUrl}/mods/${encoded}`;
+          return { id: f.replace(/\.jar$/i, ""), url, fileName: f };
+        });
     }
   } catch {
     mods = [];
