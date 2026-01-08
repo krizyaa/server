@@ -1,0 +1,395 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FloraAutobuy Админка</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: Arial, sans-serif; background:#0b1220; color:#e8f0ff; margin:20px; }
+    .card { background:#111a2e; border:1px solid #1e2a4a; padding:16px; border-radius:12px; max-width:980px; }
+    input, button { padding:10px; border-radius:10px; border:1px solid #2a3a66; background:#0b1220; color:#e8f0ff; }
+    button { cursor:pointer; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+    .keys { margin-top:12px; }
+    .key { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px; border:1px solid #22305a; border-radius:10px; margin-top:8px; }
+    code { color:#9dd3ff; word-break:break-all; }
+    .muted { color:#9bb3d8; }
+    .danger { border-color:#7a1f2c; }
+    .tabs { display:flex; gap:8px; margin-top:10px; }
+    .tab { padding:10px 12px; border-radius:10px; border:1px solid #22305a; background:#0b1220; }
+    .tab.active { background:#172546; border-color:#2D6BFF; }
+    .panel { display:none; }
+    .panel.active { display:block; }
+    .mods { margin-top:12px; }
+    .mod { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px; border:1px solid #22305a; border-radius:10px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>FloraAutobuy Админка</h2>
+
+    <div class="row">
+      <label>Пароль админа:</label>
+      <input id="pwd" type="password" placeholder="ADMIN_PASSWORD" />
+      <button id="loginBtn">Войти</button>
+      <span id="loginStatus" class="muted"></span>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabKeys">Ключи</button>
+      <button class="tab" id="tabMods">Моды</button>
+      <div style="flex:1"></div>
+      <button class="tab" id="logoutBtn">Выйти</button>
+    </div>
+
+    <hr style="border:0; border-top:1px solid #1e2a4a; margin:16px 0;" />
+
+    <div id="msg" class="muted" style="margin-top:10px"></div>
+
+    <div class="panel active" id="panelKeys">
+      <div class="row">
+        <button id="refreshBtn">Обновить ключи</button>
+        <button id="genBtn">Создать ключ</button>
+        <input id="ttlMin" placeholder="TTL (мин), опционально" style="width:170px" />
+        <input id="bindFp" placeholder="Привязать hwidFingerprint (тест)" style="min-width:320px" />
+        <button id="genBoundBtn">Создать привязанный</button>
+        <input id="manualKey" placeholder="или введи ключ вручную" style="min-width:280px" />
+        <button id="addManualBtn">Добавить</button>
+      </div>
+
+      <div class="keys" id="keys"></div>
+    </div>
+
+    <div class="panel" id="panelMods">
+      <div class="row">
+        <button id="refreshModsBtn">Обновить моды</button>
+        <input id="modFile" type="file" accept=".jar" />
+        <button id="uploadModBtn">Загрузить</button>
+      </div>
+
+      <div class="mods" id="mods"></div>
+
+      <div style="margin-top:14px" class="muted">
+        Моды хранятся на сервере в <code>/server/mods</code> и раздаются через <code>/mods/*.jar</code>.
+      </div>
+    </div>
+
+    <div style="margin-top:14px" class="muted">
+      Подсказка: задай переменную окружения <code>ADMIN_PASSWORD</code> на хосте.
+    </div>
+  </div>
+
+  <script>
+    let adminToken = localStorage.getItem("adminToken") || "";
+
+    const elPwd = document.getElementById("pwd");
+    const elLoginBtn = document.getElementById("loginBtn");
+    const elLoginStatus = document.getElementById("loginStatus");
+    const elMsg = document.getElementById("msg");
+
+    const elTabKeys = document.getElementById("tabKeys");
+    const elTabMods = document.getElementById("tabMods");
+    const elLogoutBtn = document.getElementById("logoutBtn");
+
+    const elPanelKeys = document.getElementById("panelKeys");
+    const elPanelMods = document.getElementById("panelMods");
+
+    const elKeys = document.getElementById("keys");
+    const elRefreshBtn = document.getElementById("refreshBtn");
+    const elGenBtn = document.getElementById("genBtn");
+    const elTtlMin = document.getElementById("ttlMin");
+    const elBindFp = document.getElementById("bindFp");
+    const elGenBoundBtn = document.getElementById("genBoundBtn");
+    const elManualKey = document.getElementById("manualKey");
+    const elAddManualBtn = document.getElementById("addManualBtn");
+
+    const elMods = document.getElementById("mods");
+    const elRefreshModsBtn = document.getElementById("refreshModsBtn");
+    const elModFile = document.getElementById("modFile");
+    const elUploadModBtn = document.getElementById("uploadModBtn");
+
+    function setMsg(text) {
+      elMsg.textContent = text || "";
+    }
+
+    function setLoginStatus() {
+      elLoginStatus.textContent = adminToken ? "вход выполнен" : "не выполнен вход";
+    }
+
+    function activateTab(tab) {
+      if (tab === "keys") {
+        elTabKeys.classList.add("active");
+        elTabMods.classList.remove("active");
+        elPanelKeys.classList.add("active");
+        elPanelMods.classList.remove("active");
+      } else {
+        elTabMods.classList.add("active");
+        elTabKeys.classList.remove("active");
+        elPanelMods.classList.add("active");
+        elPanelKeys.classList.remove("active");
+      }
+    }
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = data && data.error ? data.error : `http_${res.status}`;
+        throw new Error(err);
+      }
+      return data;
+    }
+
+    async function apiRaw(path, opts = {}) {
+      const headers = Object.assign({}, opts.headers || {});
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = data && data.error ? data.error : `http_${res.status}`;
+        throw new Error(err);
+      }
+      return data;
+    }
+
+    function renderKeys(keys) {
+      elKeys.innerHTML = "";
+      if (!keys || keys.length === 0) {
+        elKeys.innerHTML = '<div class="muted">Ключей нет</div>';
+        return;
+      }
+
+      keys.forEach((k) => {
+        const row = document.createElement("div");
+        row.className = "key";
+
+        const left = document.createElement("div");
+        const hwid = k.hwid ? `<div class="muted">старый hwid: <code>${k.hwid}</code></div>` : "";
+        const fp = k.hwidFingerprint ? `<div class="muted">hwidFingerprint: <code>${k.hwidFingerprint}</code></div>` : "";
+        const exp = k.expiresAt ? `<div class="muted">истекает: <code>${k.expiresAt}</code></div>` : "";
+        const used1 = k.firstUsedAt ? `<div class="muted">первый вход: <code>${k.firstUsedAt}</code></div>` : "";
+        const used2 = k.lastUsedAt ? `<div class="muted">последний вход: <code>${k.lastUsedAt}</code></div>` : "";
+        left.innerHTML = `<div><code>${k.key}</code></div><div class="muted">создан: ${k.createdAt || ""}</div>${exp}${fp}${hwid}${used1}${used2}`;
+
+        const right = document.createElement("div");
+        right.style.display = "flex";
+        right.style.gap = "10px";
+
+        const resetBtn = document.createElement("button");
+        resetBtn.textContent = "Сбросить HWID";
+        resetBtn.onclick = async () => {
+          if (!confirm(`Сбросить HWID для ${k.key}?`)) return;
+          try {
+            await api(`/api/admin/keys/${encodeURIComponent(k.key)}/reset-hwid`, { method: "POST" });
+            setMsg("HWID сброшен");
+            await refreshKeys();
+          } catch (e) {
+            setMsg(String(e.message || e));
+          }
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "danger";
+        delBtn.textContent = "Удалить";
+        delBtn.onclick = async () => {
+          if (!confirm(`Удалить ключ ${k.key}?`)) return;
+          try {
+            await api(`/api/admin/keys/${encodeURIComponent(k.key)}`, { method: "DELETE" });
+            setMsg("удалено");
+            await refreshKeys();
+          } catch (e) {
+            setMsg(String(e.message || e));
+          }
+        };
+
+        right.appendChild(resetBtn);
+        right.appendChild(delBtn);
+
+        row.appendChild(left);
+        row.appendChild(right);
+        elKeys.appendChild(row);
+      });
+    }
+
+    async function refreshKeys() {
+      try {
+        const data = await api("/api/admin/keys", { method: "GET" });
+        renderKeys(data.keys);
+        setMsg("");
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    }
+
+    function renderMods(files) {
+      elMods.innerHTML = "";
+      if (!files || files.length === 0) {
+        elMods.innerHTML = '<div class="muted">Модов нет</div>';
+        return;
+      }
+
+      files.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "mod";
+
+        const left = document.createElement("div");
+        left.innerHTML = `<div><code>${f}</code></div><div class="muted">/mods/${encodeURIComponent(f)}</div>`;
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "danger";
+        delBtn.textContent = "Удалить";
+        delBtn.onclick = async () => {
+          if (!confirm(`Удалить мод ${f}?`)) return;
+          try {
+            await api(`/api/admin/mods/${encodeURIComponent(f)}`, { method: "DELETE" });
+            setMsg("удалено");
+            await refreshMods();
+          } catch (e) {
+            setMsg(String(e.message || e));
+          }
+        };
+
+        row.appendChild(left);
+        row.appendChild(delBtn);
+        elMods.appendChild(row);
+      });
+    }
+
+    async function refreshMods() {
+      try {
+        const data = await api("/api/admin/mods", { method: "GET" });
+        renderMods(data.files);
+        setMsg("");
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    }
+
+    elLoginBtn.onclick = async () => {
+      try {
+        const password = elPwd.value;
+        const data = await api("/api/admin/login", {
+          method: "POST",
+          headers: {},
+          body: JSON.stringify({ password })
+        });
+        adminToken = data.token;
+        localStorage.setItem("adminToken", adminToken);
+        setLoginStatus();
+        setMsg("вход выполнен");
+        await refreshKeys();
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    };
+
+    elLogoutBtn.onclick = async () => {
+      try {
+        await api("/api/admin/logout", { method: "POST" });
+      } catch {}
+      adminToken = "";
+      localStorage.removeItem("adminToken");
+      setLoginStatus();
+      setMsg("вы вышли");
+    };
+
+    elTabKeys.onclick = () => activateTab("keys");
+    elTabMods.onclick = async () => {
+      activateTab("mods");
+      if (adminToken) await refreshMods();
+    };
+
+    elRefreshBtn.onclick = async () => {
+      await refreshKeys();
+    };
+
+    elGenBtn.onclick = async () => {
+      try {
+        const ttlMin = Number.parseInt(String(elTtlMin.value || "").trim(), 10);
+        const ttlSeconds = Number.isFinite(ttlMin) && ttlMin > 0 ? ttlMin * 60 : null;
+        const body = ttlSeconds ? { mode: "generate", ttlSeconds } : { mode: "generate" };
+        const data = await api("/api/admin/keys", { method: "POST", body: JSON.stringify(body) });
+        setMsg(`создан: ${data.key}`);
+        await refreshKeys();
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    };
+
+    elGenBoundBtn.onclick = async () => {
+      const fp = String(elBindFp.value || "").trim();
+      if (!fp) return setMsg("введи hwidFingerprint");
+
+      try {
+        const ttlMin = Number.parseInt(String(elTtlMin.value || "").trim(), 10);
+        const ttlSeconds = Number.isFinite(ttlMin) && ttlMin > 0 ? ttlMin * 60 : null;
+        const body = ttlSeconds
+          ? { mode: "generate", ttlSeconds, hwidFingerprint: fp }
+          : { mode: "generate", hwidFingerprint: fp };
+
+        const data = await api("/api/admin/keys", { method: "POST", body: JSON.stringify(body) });
+        setMsg(`создан (привязан): ${data.key}`);
+        await refreshKeys();
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    };
+
+    elAddManualBtn.onclick = async () => {
+      const key = String(elManualKey.value || "").trim();
+      if (!key) return setMsg("введи ключ");
+
+      try {
+        const ttlMin = Number.parseInt(String(elTtlMin.value || "").trim(), 10);
+        const ttlSeconds = Number.isFinite(ttlMin) && ttlMin > 0 ? ttlMin * 60 : null;
+        const body = ttlSeconds ? { mode: "manual", key, ttlSeconds } : { mode: "manual", key };
+        await api("/api/admin/keys", { method: "POST", body: JSON.stringify(body) });
+        elManualKey.value = "";
+        setMsg("добавлено");
+        await refreshKeys();
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    };
+
+    elRefreshModsBtn.onclick = async () => {
+      await refreshMods();
+    };
+    elUploadModBtn.onclick = async () => {
+      try {
+        const f = elModFile.files && elModFile.files[0];
+        if (!f) {
+          setMsg("выбери .jar файл");
+          return;
+        }
+        if (!f.name.toLowerCase().endsWith(".jar")) {
+          setMsg("только .jar");
+          return;
+        }
+
+        setMsg("загрузка...");
+
+        const form = new FormData();
+        form.append("file", f, f.name);
+
+        await apiRaw("/api/admin/mods/upload", {
+          method: "POST",
+          body: form
+        });
+
+        elModFile.value = "";
+        setMsg("загружено");
+        await refreshMods();
+      } catch (e) {
+        setMsg(String(e.message || e));
+      }
+    };
+
+    setLoginStatus();
+    if (adminToken) refreshKeys();
+  </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FloraAutobuy Admin Login</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: Arial, sans-serif; background:#0b1220; color:#e8f0ff; margin:20px; }
+    .card { background:#111a2e; border:1px solid #1e2a4a; padding:18px; border-radius:14px; max-width:520px; margin:0 auto; }
+    input, button { padding:12px; border-radius:12px; border:1px solid #2a3a66; background:#0b1220; color:#e8f0ff; width:100%; box-sizing:border-box; }
+    button { cursor:pointer; background:#2D6BFF; border-color:#2D6BFF; font-weight:600; }
+    button:hover { opacity:0.95; }
+    h2 { margin:0 0 10px 0; }
+    .muted { color:#9bb3d8; }
+    .row { margin-top:12px; }
+    .err { color:#ff9090; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Admin Panel</h2>
+    <div class="muted">Enter admin key to continue</div>
+
+    <div class="row">
+      <input id="adminKey" type="password" placeholder="Admin key" />
+    </div>
+
+    <div class="row">
+      <button id="loginBtn">Login</button>
+    </div>
+
+    <div id="msg" class="err"></div>
+  </div>
+
+  <script>
+    const msg = document.getElementById('msg');
+    const key = document.getElementById('adminKey');
+    const btn = document.getElementById('loginBtn');
+
+    async function login() {
+      msg.textContent = '';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: key.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          msg.textContent = (data && data.error) ? data.error : ('http_' + res.status);
+          return;
+        }
+        // Cookie is set by server. Redirect to protected panel.
+        window.location.href = '/admin';
+      } catch (e) {
+        msg.textContent = String(e);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener('click', login);
+    key.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+  </script>
+</body>
+</html>
