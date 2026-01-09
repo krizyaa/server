@@ -54,6 +54,11 @@ function parseCookies(header) {
 }
 
 function ensureDb() {
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+
   if (!fs.existsSync(DB_PATH)) {
     fs.writeFileSync(DB_PATH, JSON.stringify({ keys: [] }, null, 2), "utf8");
   }
