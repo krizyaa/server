@@ -23,9 +23,9 @@ const PROTECTED_MOD_SHA256 = process.env.PROTECTED_MOD_SHA256
 
 const MODS_LIST_RAW = process.env.MODS_LIST ? String(process.env.MODS_LIST).trim() : "";
 
-const DB_PATH = path.join(__dirname, "db.json");
+const DB_PATH = process.env.DB_PATH ? String(process.env.DB_PATH) : path.join(__dirname, "db.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
-const MODS_DIR = path.join(__dirname, "mods");
+const MODS_DIR = process.env.MODS_DIR ? String(process.env.MODS_DIR) : path.join(__dirname, "mods");
 const ADMIN_FILE = path.join(PUBLIC_DIR, "admin.html");
 
 app.use(cors());
